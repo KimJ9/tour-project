@@ -1,0 +1,6 @@
+/* 예시: src/index.css 또는 Header.css */
+.welcome-message {
+    font-weight: bold;
+    color: #1e90ff;
+    margin-top: 8px;
+  }
