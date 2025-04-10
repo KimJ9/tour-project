@@ -20,14 +20,15 @@ const Header = () => {
   };
 
   return (
-    <header className="header">
+    <header className="header" style={{ padding: "20px", textAlign: "center", backgroundColor: "#f0f0f0" }}>
       <h1>강원도 여행지 추천</h1>
-      <nav>
-        <Link to="/">홈</Link>
-        <Link to="/search">검색</Link>
-        <Link to="/recommend">추천</Link>
-        {!userName && <Link to="/login">로그인</Link>}
-        {!userName && <Link to="/register">회원가입</Link>}
+      <nav style={{ marginTop: "10px" }}>
+        <Link to="/" style={{ margin: "0 10px" }}>홈</Link>
+        <Link to="/search" style={{ margin: "0 10px" }}>검색</Link>
+        <Link to="/recommend" style={{ margin: "0 10px" }}>거리기반추천</Link>
+        <Link to="/chart" style={{ margin: "0 10px"}}>연령대별 추천</Link>
+        {!userName && <Link to="/login" style={{ margin: "0 10px" }}>로그인</Link>}
+        {!userName && <Link to="/register" style={{ margin: "0 10px" }}>회원가입</Link>}
       </nav>
 
       {/* 로그인 상태일 때만 환영 메시지 + 로그아웃 버튼 */}

@@ -1,10 +1,29 @@
 import React, { useEffect, useState } from "react";
 
+// ✅ 공공데이터 API 호출 함수
+const fetchTourData = async (mapX, mapY, radius = 20000) => {
+  const serviceKey = 'xY4pKk5mb5896ndM1b%2FIidt47%2Bq5y5vTZGhsjz4xgC09Vjyuhl8qXiYgIX9m4TaFvuz8uXR6oiExgPFyzJsdpA%3D%3D';
+  const url = `http://apis.data.go.kr/B551011/KorService1/locationBasedList1?serviceKey=${serviceKey}&mapX=${mapX}&mapY=${mapY}&radius=${radius}&numOfRows=30&MobileOS=ETC&MobileApp=tour-project&_type=json`;
+
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+
+    const items = data?.response?.body?.items?.item || [];
+
+    console.log("📦 API 응답 1건 확인:", items[0]);
+
+    return items;
+  } catch (error) {
+    console.error("❌ 관광지 API 호출 에러:", error);
+    return [];
+  }
+};
+
 function Recommend() {
   const [top3, setTop3] = useState([]);
   const [userLatLng, setUserLatLng] = useState(null);
 
-  // ✅ 사용자 위치 받아오기 및 거리 계산
   useEffect(() => {
     const currentUser = JSON.parse(localStorage.getItem("currentUser") || "null");
     const userLat = currentUser?.lat;
@@ -17,12 +36,6 @@ function Recommend() {
 
     setUserLatLng({ lat: userLat, lng: userLng });
 
-    const places = [
-      { id: 1, name: "남이섬", category: "관광지", lat: 37.790277, lng: 127.525833 },
-      { id: 2, name: "엘리시안 강촌", category: "숙박", lat: 37.823921, lng: 127.623795 },
-      { id: 3, name: "강촌유스호스텔", category: "숙박", lat: 37.8189, lng: 127.6381 },
-    ];
-
     const toRad = (value) => (value * Math.PI) / 180;
     const calcDistance = (lat1, lng1, lat2, lng2) => {
       const R = 6371;
@@ -31,34 +44,47 @@ function Recommend() {
       const a =
         Math.sin(dLat / 2) ** 2 +
         Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-      return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     };
 
-    const placesWithDistance = places.map((place) => ({
-      ...place,
-      distance: calcDistance(userLat, userLng, place.lat, place.lng),
-    }));
+    const loadPlaces = async () => {
+      const apiPlaces = await fetchTourData(userLng, userLat);
 
-    const sorted = placesWithDistance
-      .sort((a, b) => a.distance - b.distance)
-      .slice(0, 3);
+      const filtered = apiPlaces
+      .filter((place) => Number(place.areacode) === 32)
+      .map((place) => ({
+        id: place.contentid,
+        name: place.title,
+        category: place.cat2 || "관광지",
+        lat: Number(place.mapy),
+        lng: Number(place.mapx),
+        distance: calcDistance(userLat, userLng, Number(place.mapy), Number(place.mapx)),
+        }));
 
-    setTop3(sorted);
+      const sorted = filtered
+        .sort((a, b) => a.distance - b.distance)
+        .slice(0, 3);
+
+      console.log("🧭 최종 추천 top3:", sorted);
+
+      setTop3(sorted);
+    };
+
+    loadPlaces();
   }, []);
 
-  // ✅ 지도 렌더링 + 마커 표시
+  // ✅ 지도 및 마커 렌더링
   useEffect(() => {
     if (userLatLng && window.google) {
       const map = new window.google.maps.Map(document.getElementById("map"), {
         center: userLatLng,
         zoom: 11,
-        scrollwheel: true, // ✅ 휠 확대 허용
+        scrollwheel: true,
         mapTypeControl: false,
         streetViewControl: false,
         fullscreenControl: false,
       });
 
-      // ✅ 내 위치 마커
       new window.google.maps.Marker({
         position: userLatLng,
         map,
@@ -69,45 +95,47 @@ function Recommend() {
         },
       });
 
-      // ✅ 카테고리별 아이콘 경로 지정
-      const iconMap = {
-        관광지: "/icons/tour.png",
-        맛집: "/icons/food.png",
-        숙박: "/icons/hotel.png",
-      };
+      if (top3.length > 0) {
+        const iconMap = {
+          관광지: "/icons/tour.png",
+          맛집: "/icons/food.png",
+          숙박: "/icons/hotel.png",
+        };
 
-      // ✅ 추천 마커 + InfoWindow
-      top3.forEach((place) => {
-        const marker = new window.google.maps.Marker({
-          position: { lat: place.lat, lng: place.lng },
-          map,
-          title: place.name,
-          icon: {
-            url: iconMap[place.category] || "/icons/tour.png", // fallback
-            scaledSize: new window.google.maps.Size(32, 32),
-          },
-        });
+        top3.forEach((place) => {
+          console.log("📍 마커 찍는 장소:", place);
 
-        const infoWindow = new window.google.maps.InfoWindow({
-          content: `
-            <div style="font-size:14px;">
-              <strong>${place.name}</strong><br/>
-              카테고리: ${place.category}<br/>
-              거리: ${place.distance.toFixed(2)} km
-            </div>
-          `,
-        });
+          const marker = new window.google.maps.Marker({
+            position: { lat: place.lat, lng: place.lng },
+            map,
+            title: place.name,
+            icon: {
+              url: iconMap[place.category] || "/icons/tour.png",
+              scaledSize: new window.google.maps.Size(32, 32),
+            },
+          });
 
-        marker.addListener("click", () => {
-          infoWindow.open(map, marker);
+          const infoWindow = new window.google.maps.InfoWindow({
+            content: `
+              <div style="font-size:14px;">
+                <strong>${place.name}</strong><br/>
+                카테고리: ${place.category}<br/>
+                거리: ${place.distance.toFixed(2)} km
+              </div>
+            `,
+          });
+
+          marker.addListener("click", () => {
+            infoWindow.open(map, marker);
+          });
         });
-      });
+      }
     }
   }, [userLatLng, top3]);
 
   return (
     <div style={{ padding: "20px" }}>
-      <h2>📍 거리 기반 추천</h2>
+      <h2>강원도 여행지 추천</h2>
       <div id="map" style={{ width: "100%", height: "400px", marginTop: "20px" }}></div>
       <ul style={{ marginTop: "20px" }}>
         {top3.map((place) => (

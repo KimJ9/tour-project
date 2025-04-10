@@ -1,101 +1,211 @@
-// src/pages/Search.jsx
-import React, { useState, useEffect } from "react";
+// ✅ 상단 import
+import React, { useEffect, useState } from "react";
 
-function Search() {
-  const [category, setCategory] = useState("");
-  const [ageGroup, setAgeGroup] = useState("");
-  const [filteredList, setFilteredList] = useState([]);
+// ✅ 인증키
+const serviceKey = 'xY4pKk5mb5896ndM1b%2FIidt47%2Bq5y5vTZGhsjz4xgC09Vjyuhl8qXiYgIX9m4TaFvuz8uXR6oiExgPFyzJsdpA%3D%3D';
 
-  // ✅ 로그인된 사용자 연령대 자동 설정
-  useEffect(() => {
-    const currentUser = JSON.parse(localStorage.getItem("currentUser") || "null");
-    if (currentUser && currentUser.ageGroup) {
-      setAgeGroup(currentUser.ageGroup);
-    }
-  }, []);
+const Search = () => {
+  const [places, setPlaces] = useState([]);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [selectedPlaces, setSelectedPlaces] = useState([]);
+  const [nearHotels, setNearHotels] = useState([]);
 
-  // ✅ mock 데이터
-  const mockData = [
-    { id: 1, name: "남이섬", category: "관광지", age: "20대" },
-    { id: 2, name: "춘천막국수", category: "맛집", age: "30대" },
-    { id: 3, name: "엘리시안 강촌", category: "숙박", age: "20대" },
-    { id: 4, name: "소양강 스카이워크", category: "관광지", age: "40대" },
-    { id: 5, name: "강촌유스호스텔", category: "숙박", age: "50대" },
-    { id: 6, name: "강원한우마을", category: "맛집", age: "60대 이상" },
-  ];
+  const toRad = (value) => (value * Math.PI) / 180;
+  const calcDistance = (lat1, lng1, lat2, lng2) => {
+    const R = 6371;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  };
 
-  // ✅ 필터링 함수
-  const handleSearch = () => {
-    const result = mockData.filter((item) => {
-      const matchCategory = category === "" || item.category === category;
-      const matchAge = ageGroup === "" || item.age === ageGroup;
-      return matchCategory && matchAge;
-    });
+  const fetchPlaces = async () => {
+    const url = `http://apis.data.go.kr/B551011/KorService1/locationBasedList1?serviceKey=${serviceKey}&mapX=127.7298&mapY=37.8813&radius=20000&contentTypeId=12&numOfRows=30&MobileOS=ETC&MobileApp=tour-project&_type=json`;
 
-    setFilteredList(result);
+    try {
+      const res = await fetch(url);
+      const data = await res.json();
+      const items = data?.response?.body?.items?.item || [];
 
-    // ✅ 검색 로그 기록 (관광지 이름까지 저장)
-    const currentUser = JSON.parse(localStorage.getItem("currentUser") || "null");
-    if (currentUser) {
-      const searchLogs = JSON.parse(localStorage.getItem("searchLogs") || "[]");
-
-      result.forEach((item) => {
-        searchLogs.push({
-          ageGroup: currentUser.ageGroup,
-          category: item.category,
-          name: item.name, // ✅ 관광지/맛집/숙소 이름 저장
-          timestamp: new Date().toISOString()
-        });
-      });
-
-      localStorage.setItem("searchLogs", JSON.stringify(searchLogs));
+      const filtered = items.filter((item) => item.addr1?.includes("강원"));
+      setPlaces(filtered);
+    } catch (error) {
+      console.error("❌ 관광지 API 호출 실패:", error);
     }
   };
 
+  const fetchNearbyHotels = async (tourList) => {
+    const allHotels = [];
+
+    for (const place of tourList) {
+      const hotelUrl = `http://apis.data.go.kr/B551011/KorService1/locationBasedList1?serviceKey=${serviceKey}&mapX=${place.mapx}&mapY=${place.mapy}&radius=3000&contentTypeId=32&numOfRows=5&MobileOS=ETC&MobileApp=tour-project&_type=json`;
+
+      try {
+        const res = await fetch(hotelUrl);
+        const data = await res.json();
+        const items = data?.response?.body?.items?.item || [];
+
+        const nearest = items
+          .map((hotel) => ({
+            id: hotel.contentid,
+            title: hotel.title,
+            addr: hotel.addr1,
+            lat: parseFloat(hotel.mapy),
+            lng: parseFloat(hotel.mapx),
+            distance: calcDistance(place.mapy, place.mapx, hotel.mapy, hotel.mapx),
+          }))
+          .sort((a, b) => a.distance - b.distance)[0];
+
+        if (nearest) allHotels.push(nearest);
+      } catch (err) {
+        console.error("❌ 숙소 API 오류:", err);
+      }
+    }
+
+    setNearHotels(allHotels);
+
+    const saveData = {
+      selectedPlaces: tourList.map((p) => ({ id: p.contentid, title: p.title })),
+      nearHotels: allHotels.map((h) => ({ id: h.id, title: h.title })),
+    };
+    localStorage.setItem("selectedSpots", JSON.stringify(saveData));
+  };
+
+  const toggleSelect = (id) => {
+    const updated = selectedIds.includes(id)
+      ? selectedIds.filter((x) => x !== id)
+      : [...selectedIds.slice(0, 2), id];
+
+    setSelectedIds(updated);
+
+    const selected = places.filter((place) => updated.includes(place.contentid));
+    setSelectedPlaces(selected);
+
+    fetchNearbyHotels(selected);
+
+    const currentUser = JSON.parse(localStorage.getItem("currentUser") || "null");
+    const searchLogs = JSON.parse(localStorage.getItem("searchLogs") || "[]");
+
+    selected.forEach((place) => {
+      searchLogs.push({
+        ageGroup: currentUser?.ageGroup || "기타",
+        category: "관광지",
+        name: place.title,
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    localStorage.setItem("searchLogs", JSON.stringify(searchLogs));
+  };
+
+  const resetSelections = () => {
+    setSelectedIds([]);
+    setSelectedPlaces([]);
+    setNearHotels([]);
+    localStorage.removeItem("selectedSpots");
+  };
+
+  useEffect(() => {
+    fetchPlaces();
+  }, []);
+
+  useEffect(() => {
+    if (window.google && selectedPlaces.length > 0) {
+      const center = {
+        lat: parseFloat(selectedPlaces[0].mapy),
+        lng: parseFloat(selectedPlaces[0].mapx),
+      };
+
+      const map = new window.google.maps.Map(document.getElementById("map"), {
+        center,
+        zoom: 11,
+        scrollwheel: true,
+      });
+
+      selectedPlaces.forEach((place) => {
+        const marker = new window.google.maps.Marker({
+          position: { lat: parseFloat(place.mapy), lng: parseFloat(place.mapx) },
+          map,
+          title: place.title,
+          icon: {
+            url: "/icons/tour.png",
+            scaledSize: new window.google.maps.Size(32, 32),
+          },
+        });
+
+        const info = new window.google.maps.InfoWindow({
+          content: `<strong>${place.title}</strong><br/>${place.addr1}`,
+        });
+
+        marker.addListener("click", () => {
+          info.open(map, marker);
+        });
+      });
+
+      nearHotels.forEach((hotel) => {
+        const marker = new window.google.maps.Marker({
+          position: { lat: hotel.lat, lng: hotel.lng },
+          map,
+          title: hotel.title,
+          icon: {
+            url: "/icons/hotel.png",
+            scaledSize: new window.google.maps.Size(32, 32),
+          },
+        });
+
+        const info = new window.google.maps.InfoWindow({
+          content: `<strong>${hotel.title}</strong><br/>${hotel.addr}<br/>거리: ${hotel.distance.toFixed(2)} km`,
+        });
+
+        marker.addListener("click", () => {
+          info.open(map, marker);
+        });
+      });
+    }
+  }, [selectedPlaces, nearHotels]);
+
   return (
     <div style={{ padding: "20px" }}>
-      <h2>🔍 관광지 검색</h2>
+      <h2>🔍 강원도 관광지 선택 (최대 3개)</h2>
+      <button onClick={resetSelections} style={{ marginBottom: "10px" }}>
+        선택 초기화
+      </button>
+      <ul>
+        {places.map((place, index) => (
+          <li key={`${place.contentid}-${index}`} style={{ marginBottom: "10px" }}>
+            <input
+              type="checkbox"
+              checked={selectedIds.includes(place.contentid)}
+              onChange={() => toggleSelect(place.contentid)}
+              disabled={!selectedIds.includes(place.contentid) && selectedIds.length >= 3}
+            />
+            <strong>{place.title}</strong> - {place.addr1}
+          </li>
+        ))}
+      </ul>
 
-      {/* 카테고리 선택 */}
-      <div style={{ marginBottom: "10px" }}>
-        <label>카테고리: </label>
-        <select value={category} onChange={(e) => setCategory(e.target.value)}>
-          <option value="">전체</option>
-          <option value="관광지">관광지</option>
-          <option value="숙박">숙박</option>
-          <option value="맛집">맛집</option>
-        </select>
-      </div>
-
-      {/* 연령대 선택 */}
-      <div style={{ marginBottom: "10px" }}>
-        <label>연령대: </label>
-        <select value={ageGroup} onChange={(e) => setAgeGroup(e.target.value)}>
-          <option value="">전체</option>
-          <option value="10대">10대</option>
-          <option value="20대">20대</option>
-          <option value="30대">30대</option>
-          <option value="40대">40대</option>
-          <option value="50대">50대</option>
-          <option value="60대 이상">60대 이상</option>
-        </select>
-      </div>
-
-      {/* 검색 버튼 */}
-      <button onClick={handleSearch}>검색</button>
-
-      {/* 결과 리스트 */}
+      {/* ✅ 선택된 관광지/숙소 텍스트 출력 */}
       <div style={{ marginTop: "20px" }}>
+        <h4>📍 선택된 관광지</h4>
         <ul>
-          {filteredList.map((item) => (
-            <li key={item.id}>
-              📌 {item.name} ({item.category}, {item.age})
-            </li>
+          {selectedPlaces.map((p) => (
+            <li key={p.contentid}>{p.title}</li>
+          ))}
+        </ul>
+
+        <h4>🏨 추천 숙소</h4>
+        <ul>
+          {nearHotels.map((h) => (
+            <li key={h.id}>{h.title} (거리: {h.distance.toFixed(2)}km)</li>
           ))}
         </ul>
       </div>
+
+      <div id="map" style={{ height: "500px", marginTop: "20px" }}></div>
     </div>
   );
-}
+};
 
 export default Search;
